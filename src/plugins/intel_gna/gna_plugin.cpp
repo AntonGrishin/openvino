@@ -72,6 +72,8 @@
 #include "transformations/insert_reshape_around_matmul.hpp"
 #include "transformations/convert_dwsc_to_scaleshifts.hpp"
 #include "transformations/op_conversions/lstm_cell_decomposition.hpp"
+#include "transformations/op_conversions/gru_cell_decomposition.hpp"
+#include "transformations/op_conversions/convert_sequences_to_tensor_iterator.hpp"
 #include "transformations/remove_single_input_concat.hpp"
 #include "transformations/remove_converts.hpp"
 #include "transformations/broadcast_const.hpp"
@@ -80,6 +82,8 @@
 #include "transformations/substitute_softsign.hpp"
 #include "transformations/convert_precision.hpp"
 #include "transformations/unfuse_reshape_and_transpose.hpp"
+#include "transformations/serialize.hpp"
+
 
 #include <ngraph/opsets/opset7.hpp>
 
@@ -657,6 +661,9 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         manager.register_pass<ngraph::pass::CommonOptimizations>();
         manager.register_pass<RemoveInputConvert>();
         manager.register_pass<RemoveOutputConvert>();
+        manager.register_pass<ngraph::pass::ConvertSequenceToTensorIterator>();
+        manager.register_pass<ngraph::pass::CommonOptimizations>();
+        manager.register_pass<ngraph::pass::GRUCellDecomposition>();
         manager.register_pass<ngraph::pass::LSTMCellDecomposition>();
         manager.register_pass<ConvertDWSCToScaleShifts>();
         manager.register_pass<ConvertPaddedToValidConv>();
@@ -704,6 +711,9 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         manager.register_pass<BroadcastAddMultiplyConst>();
         // UnrollTI should be the last transformation in the transformation pipeline
         manager.register_pass<ngraph::pass::UnrollTensorIterator>();
+        // manager.register_pass<ngraph::pass::Serialize>("serialize_after_ngraph.xml", "serialize_after_ngraph.bin");
+        // clonedNetwork.serialize("serialize_after_ngraph.xml", "serialize_after_ngraph.bin");
+
         const auto& pass_config = manager.get_pass_config();
 
         // Allowing FP16 Converts to be folded and FP16 constants to upgrade to FP32 data type
@@ -801,6 +811,7 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         passes->registerPass<FuseMultipleIdentitiesPass>();
         passIdx = passes->run(passIdx);
     };
+
 
     InferenceEngine::CNNNetwork newNet;
 
