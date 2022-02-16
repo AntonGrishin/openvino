@@ -7,6 +7,7 @@
 #include <tuple>
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 
 #include "shared_test_classes/base/layer_test_utils.hpp"
@@ -16,15 +17,16 @@
 namespace LayerTestsDefinitions {
 
 using GRUCellParams = typename std::tuple<
-        bool,                              // using decompose to sub-ops transformation
-        size_t,                            // batch
-        size_t,                            // hidden size
-        size_t,                            // input size
-        std::vector<std::string>,          // activations
-        float,                             // clip
-        bool,                              // linear_before_reset
-        InferenceEngine::Precision,        // Network precision
-        std::string>;                      // Device name
+        bool,                                // using decompose to sub-ops transformation
+        size_t,                              // batch
+        size_t,                              // hidden size
+        size_t,                              // input size
+        std::vector<std::string>,            // activations
+        float,                               // clip
+        bool,                                // linear_before_reset
+        InferenceEngine::Precision,          // Network precision
+        std::string,                         // Device name
+        std::map<std::string, std::string>>; // Additional network configuration
 
 class GRUCellTest : public testing::WithParamInterface<GRUCellParams >,
                      virtual public LayerTestsUtils::LayerTestsCommon {

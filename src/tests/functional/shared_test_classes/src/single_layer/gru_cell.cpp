@@ -20,8 +20,9 @@ std::string GRUCellTest::getTestCaseName(const testing::TestParamInfo<GRUCellPar
     std::vector<std::vector<size_t>> inputShapes;
     InferenceEngine::Precision netPrecision;
     std::string targetDevice;
+    std::map<std::string, std::string> additionalConfig;
     std::tie(should_decompose, batch, hidden_size, input_size, activations, clip,
-            linear_before_reset, netPrecision, targetDevice) = obj.param;
+            linear_before_reset, netPrecision, targetDevice, additionalConfig) = obj.param;
     inputShapes = {
             {{batch, input_size}, {batch, hidden_size}, {3 * hidden_size, input_size},
                     {3 * hidden_size, hidden_size}, {(linear_before_reset? 4 : 3) * hidden_size}},
@@ -36,7 +37,12 @@ std::string GRUCellTest::getTestCaseName(const testing::TestParamInfo<GRUCellPar
     result << "clip=" << clip << "_";
     result << "linear_before_reset=" << linear_before_reset << "_";
     result << "netPRC=" << netPrecision.name() << "_";
-    result << "targetDevice=" << targetDevice << "_";
+    result << "targetDevice=" << targetDevice;
+    result << "config=(";
+    for (const auto configEntry : additionalConfig) {
+        result << configEntry.first << ", " << configEntry.second << ";";
+    }
+    result << ")";
     return result.str();
 }
 
@@ -51,8 +57,11 @@ void GRUCellTest::SetUp() {
     float clip;
     bool linear_before_reset;
     InferenceEngine::Precision netPrecision;
+    std::map<std::string, std::string> additionalConfig;
     std::tie(should_decompose, batch, hidden_size, input_size, activations, clip, linear_before_reset,
-            netPrecision, targetDevice) = this->GetParam();
+            netPrecision, targetDevice, additionalConfig) = this->GetParam();
+
+    configuration.insert(additionalConfig.begin(), additionalConfig.end());
 
     std::vector<std::vector<size_t>> inputShapes = {
             {{batch, input_size}, {batch, hidden_size}, {3 * hidden_size, input_size},

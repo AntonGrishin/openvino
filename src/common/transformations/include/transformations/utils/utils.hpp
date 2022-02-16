@@ -69,12 +69,14 @@ inline std::string create_ie_output_name(const ngraph::Output<const ngraph::Node
     NGRAPH_SUPPRESS_DEPRECATED_END
     if (!tensor_name.empty()) {
         out_name = std::move(tensor_name);
+        std::cout << "Used previously set name: " << out_name << " for node " << output.get_node() << std::endl;
     } else {
         const auto& prev_layer = output.get_node_shared_ptr();
         out_name = prev_layer->get_friendly_name();
         if (prev_layer->get_output_size() != 1) {
             out_name += "." + std::to_string(output.get_index());
         }
+        std::cout << "Created out name: " << out_name << " for node " << output.get_node() << std::endl;
     }
     return out_name;
 }

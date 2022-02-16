@@ -38,6 +38,7 @@ bool ngraph::pass::UnrollTensorIterator::run_on_model(const std::shared_ptr<ngra
             for (auto& node : body_functions[idx]->get_ops()) {
                 node->set_friendly_name(sub_graph_op->get_friendly_name() + "/" + std::to_string(idx + 1) + "/" +
                                         node->get_friendly_name());
+                std::cout << "Set friendly name: " << node->get_friendly_name() << "for node"  << node << std::endl;
                 copy_runtime_info(sub_graph_op, node);
             }
         }
@@ -134,6 +135,7 @@ bool ngraph::pass::UnrollTensorIterator::run_on_model(const std::shared_ptr<ngra
 
                     // set output name to Tensor to store it for ngraph to cnn conversion
                     NGRAPH_SUPPRESS_DEPRECATED_START
+                    std::cout << "1 Set tensor output name for " << concat->get_friendly_name() << std::endl;
                     concat->output(0).get_tensor().set_name(
                         op::util::create_ie_output_name(sub_graph_op->output(concat_desc->m_output_index)));
                     NGRAPH_SUPPRESS_DEPRECATED_END
@@ -148,6 +150,7 @@ bool ngraph::pass::UnrollTensorIterator::run_on_model(const std::shared_ptr<ngra
                     const auto& input_to_res = result->get_input_source_output(0);
                     // set output name to Tensor to store it for ngraph to cnn conversion
                     NGRAPH_SUPPRESS_DEPRECATED_START
+                    std::cout << "2 Set tensor output name for " << result->get_friendly_name() << std::endl;
                     input_to_res.get_tensor().set_name(
                         op::util::create_ie_output_name(sub_graph_op->output(concat_desc->m_output_index)));
                     NGRAPH_SUPPRESS_DEPRECATED_END
@@ -166,6 +169,7 @@ bool ngraph::pass::UnrollTensorIterator::run_on_model(const std::shared_ptr<ngra
 
                 // set output name to Tensor to store it for ngraph to cnn conversion
                 NGRAPH_SUPPRESS_DEPRECATED_START
+                std::cout << "3 Set tensor output name for " << result->get_friendly_name() << std::endl;
                 in_value.get_tensor().set_name(
                     op::util::create_ie_output_name(sub_graph_op->output(output_desc->m_output_index)));
                 NGRAPH_SUPPRESS_DEPRECATED_END

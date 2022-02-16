@@ -1903,11 +1903,14 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
 
         // Set originalLayersNames from FusedNames
         std::string originalNames = ngraph::getFusedNames(layer);
+        std::cout << std::endl  << "start new loop iteration" << std::endl;
+        std::cout << cnnLayer->name << " original name " << originalNames << std::endl;
         if (!originalNames.empty()) {
             cnnLayer->params[ExecGraphInfoSerialization::ORIGINAL_NAMES] = originalNames;
         }
 
         std::string primitivesPriority = ov::getPrimitivesPriority(layer);
+        std::cout << cnnLayer->name << " primitivesPriority " << primitivesPriority << std::endl;
         if (!primitivesPriority.empty()) {
             cnnLayer->params["PrimitivesPriority"] = primitivesPriority;
         }
@@ -1938,6 +1941,7 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
         }
 
         cnnLayer->insData.resize(inputCount);
+        std::cout << cnnLayer->name << " insData.resize(inputCount) " << inputCount << std::endl;
 
         for (size_t i = 0; i < layer->get_output_size(); i++) {
             // Memory node with index = 1 has no inputs according to the specification.
@@ -1960,7 +1964,7 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
             }
 
             auto outName = ngraph::op::util::get_ie_output_name(layer->output(i));
-
+            std::cout << layer << "["<< i << "] outName " << outName << std::endl;
 
             DataPtr &ptr = cnnNetworkImpl->getData(outName.c_str());
             IE_ASSERT(layer->get_output_partial_shape(i).is_static()) << " nGraph "
@@ -1970,6 +1974,11 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
                 << i << " contains dynamic shapes: " << layer->get_output_partial_shape(i)
                 << ". Try to use CNNNetwork::reshape() method in order to specialize shapes "
                 << "before the conversion.";
+            std::cout << "nGraph "
+                << layer->description() << " operation with name: "
+                << layer->get_friendly_name() << " converted to " << cnnLayer->type
+                << " layer with name: " << cnnLayer->name << " output with index "
+                << i << std::endl;
             SizeVector dims = layer->get_output_shape(i);
             for (const auto &dim : dims) {
                 if (!dim)
@@ -1996,11 +2005,17 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
             }
 
             getCreatorLayer(ptr) = cnnLayer;
+            std::cout << "Creator layer " << ptr << " named " << ptr->getName() << std::endl;
             cnnLayer->outData.push_back(ptr);
+            std::cout << "OutData" << std::endl;
+            for (const auto& lay : cnnLayer->outData) {
+                std::cout << lay << " name " << lay->getName() <<  std::endl;
+            }
             if (std::dynamic_pointer_cast<::ngraph::op::Parameter>(layer)) {
                 keep_input_info(cnnNetworkImpl, ptr);
             }
         }
+        std::cout << "Add layer " << cnnLayer << " " << cnnLayer->name << std::endl;
         cnnNetworkImpl->addLayer(cnnLayer);
     }
 
@@ -2012,6 +2027,7 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
             IE_ASSERT(layer->get_input_size() == 1);
             const auto &input = layer->input_value(0);
             cnnNetworkImpl->addOutput(ngraph::op::util::get_ie_output_name(input));
+            std::cout << "Create result layer for input " << ngraph::op::util::get_ie_output_name(input) << std::endl;
             continue;
         }
 
@@ -2046,7 +2062,20 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
                                    << " cannot be connected with output port " << output_port.get_index()
                                    << " (max " << prevCnnLayer->outData.size() << ") of " << prevCnnLayer->type
                                    << " layer " << prevCnnLayer->name;
+
+            std::cout << "Create CNNNetwork"
+                   << "Input port " << inIndex << " (max " << cnnLayer->insData.size() << ") of "
+                   << cnnLayer << " with type " << cnnLayer->type << " layer " << cnnLayer->name
+                   << " connected with output port " << output_port.get_index()
+                   << " (max " << prevCnnLayer->outData.size() << ") of " << prevCnnLayer << " with type " << prevCnnLayer->type
+                   << " layer " << prevCnnLayer->name << std::endl;
+            std::cout << "where prevCnnLayer->outData[output_port.get_index()]"
+                   << prevCnnLayer->outData[output_port.get_index()]->getName() << std::endl;
             cnnLayer->insData[inIndex - count_of_skipped] = prevCnnLayer->outData[output_port.get_index()];
+            std::cout << "cnnLayer->insData[" << inIndex - count_of_skipped << "] = " << cnnLayer->insData[inIndex - count_of_skipped].lock() << std::endl;
+            std::cout << "prevCnnLayer->outData[" << output_port.get_index() << "] = " <<  prevCnnLayer->outData[output_port.get_index()] << std::endl;
+            std::cout << "getInputTo(prevCnnLayer->outData[output_port.get_index()])[cnnLayer->name] = cnnLayer" << std::endl;
+            std::cout << getInputTo(prevCnnLayer->outData[output_port.get_index()])[cnnLayer->name] << " = " << cnnLayer << std::endl;
             getInputTo(prevCnnLayer->outData[output_port.get_index()])[cnnLayer->name] = cnnLayer;
         }
     }
@@ -2061,6 +2090,8 @@ void convertFunctionToICNNNetwork(const std::shared_ptr<const ::ngraph::Function
                 IE_THROW() << "Layer " << layer->name.c_str() << " input port " << i
                                    << " is not connected to any data";
             }
+            std::cout << "Layer " << layer->name.c_str() << " input port " << i
+                   << " is connected to " << layer->insData[i].lock()->getName()<< std::endl;
         }
 
         // execution ngraph is fake graph and should not be validated

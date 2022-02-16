@@ -21,6 +21,8 @@ namespace {
     std::vector<InferenceEngine::Precision> netPrecisions = {InferenceEngine::Precision::FP32,
                                                              InferenceEngine::Precision::FP16};
 
+    std::map<std::string, std::string> additional_config = {};
+
     INSTANTIATE_TEST_SUITE_P(smoke_GRUCellCommon, GRUCellTest,
             ::testing::Combine(
             ::testing::ValuesIn(should_decompose),
@@ -31,7 +33,8 @@ namespace {
             ::testing::ValuesIn(clip),
             ::testing::ValuesIn(linear_before_reset),
             ::testing::ValuesIn(netPrecisions),
-            ::testing::Values(CommonTestUtils::DEVICE_CPU)),
+            ::testing::Values(CommonTestUtils::DEVICE_CPU),
+            ::testing::Values(additional_config)),
             GRUCellTest::getTestCaseName);
 
 }  // namespace
