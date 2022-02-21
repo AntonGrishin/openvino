@@ -242,20 +242,11 @@ void GNAPlugin::ExportScores(T *ptr_dst,
             case Precision::I8 :
             case Precision::I32 : {
                 for (uint32_t i = 0; i < num_frames; i++) {
-                    uint8_t* ptr_dst_vec = reinterpret_cast<uint8_t*>(ptr_dst) + i * num_vector_elements * precision_out_size;
-                    const uint8_t* ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in_size;
+                    void* ptr_dst_vec = reinterpret_cast<uint8_t*>(ptr_dst) + i * num_vector_elements * precision_out_size;
+                    const void* ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in_size;
                     memset(ptr_dst_vec, 0, num_vector_elements * precision_out_size);
-
-                    if (!ptr_src_vec || num_active_elements * precision_in_size > num_active_elements * precision_out_size ||
-                        num_active_elements * precision_in_size > (ptr_dst_vec > ptr_src_vec ? ((uintptr_t)ptr_dst_vec - (uintptr_t)ptr_src_vec)
-                                               : ((uintptr_t)ptr_src_vec - (uintptr_t)ptr_dst_vec))) {
-                        // zero out dest if error detected
-                        memset(ptr_dst_vec, 0, num_active_elements * precision_out_size);
-                    } else {
-                        for (uint32_t j = 0; j < num_active_elements * precision_in_size; ++j) {
-                            ptr_dst_vec[j] = ptr_src_vec[j];
-                        }
-                    }
+                    ie_memcpy(ptr_dst_vec, num_active_elements * precision_out_size,
+                        ptr_src_vec, num_active_elements * precision_in_size);
                 }
                 if (gnadevice) {
                     T* dst = ptr_dst;
