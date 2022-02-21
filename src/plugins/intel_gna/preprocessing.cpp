@@ -3,10 +3,8 @@
 //
 
 #include "preprocessing.hpp"
-#include <immintrin.h>
 
 int16_t GNAPluginNS::ConvertFloatToInt16(float src) {
-    OV_ITT_SCOPED_TASK(itt::domains::GNAPlugin, "ConvertFloatToInt16");
     float rounding_value = (src > 0) ? 0.5f : -0.5f;
     float value = src + rounding_value;
     if (value > 32767.0) {
@@ -36,7 +34,6 @@ void GNAPluginNS::ConvertToInt16(int16_t *ptr_dst,
     if (!ptr_dst || !ptr_src) {
         return;
     }
-
     for (uint32_t i = 0; i < num_rows*num_columns; i++) {
         ptr_dst[i] = GNAPluginNS::ConvertFloatToInt16(ptr_src[i]*scale_factor);
     }

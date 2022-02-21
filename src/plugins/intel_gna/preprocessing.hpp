@@ -5,7 +5,7 @@
 #pragma once
 
 #include <cstdint>
-#include "gna_itt.hpp"
+
 namespace GNAPluginNS {
 
 void ConvertToInt16(int16_t *ptr_dst,

@@ -128,7 +128,6 @@ void GNAPlugin::copyInputData(T *dst,
     if (!dst || !src) {
         return;
     }
-
     if (orientation == kDnnInterleavedOrientation) {
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_vector_elements; j++) {
@@ -191,16 +190,14 @@ template<typename T>
 void GNAPlugin::ExportScores(T *ptr_dst,
                   const void *ptr_src,
                   intel_dnn_orientation_t orientation,
-                  uint32_t num_frames, //batchSize
-                  uint32_t num_group, // batchSize
-                  uint32_t num_vector_elements, //elementsperBatch
+                  uint32_t num_frames,
+                  uint32_t num_group,
+                  uint32_t num_vector_elements,
                   uint32_t num_active_elements,
                   uint32_t num_vector_stride,
                   Precision precision_in,
                   Precision precision_out,
                   const float scale_factor) {
-    OV_ITT_SCOPED_TASK(itt::domains::GNAPlugin, "ExportScores");
-
     if (precision_out != Precision::I32 && precision_out != Precision::FP32) {
         THROW_GNA_EXCEPTION << "Unsupported target precision for infer : " << precision_out.name();
     }
@@ -271,7 +268,6 @@ void GNAPlugin::ExportScores(T *ptr_dst,
                             dst[i] = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr)) / scale_factor;
                         }
                     }
-
                 }
                 break;
             }
@@ -292,7 +288,6 @@ void GNAPlugin::ExportScores(T *ptr_dst,
                 THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
         }
     }
-
 }
 
 void GNAPlugin::ImportFrames(void *ptr_dst,
@@ -1418,7 +1413,7 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
             num_infers++;
             if (f) {
                 if (isScalar) {
-                    fprintf(f, "%d ", outputBlob->cbuffer().as<float*>()[0]);
+                    fprintf(f, "%.2f ", outputBlob->cbuffer().as<float*>()[0]);
                 } else {
                     for (int i = 0; i < batchSize; i++) {
                         for (int j = 0; j < dims[dims.size() - 1]; j++) {
