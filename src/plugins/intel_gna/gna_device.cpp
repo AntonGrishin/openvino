@@ -480,13 +480,53 @@ void GNADeviceHelper::close() {
 }
 
 void GNADeviceHelper::updateGnaPerfCounters() {
+    uint64_t prev_counter;
     if (!isPerformanceMeasuring)
         return;
     instrumentationTotal[0] = instrumentationResults[0];
     instrumentationTotal[1] = instrumentationResults[1];
-    instrumentationResults[0] = 0;
-    instrumentationResults[1] = 0;
+    instrumentationTotal[2] = 0;
+    instrumentationTotal[11] = 0;
+    // library counters (microseconds)
+    prev_counter = instrumentationResults[2]; // counters not populated in all modes
+    for (int i = 3; i < 11; i++) {
+        if (instrumentationResults[i] > 0) {
+            instrumentationTotal[i] = (instrumentationResults[i] - prev_counter);
+            prev_counter = instrumentationResults[i];
+        } else {
+            instrumentationTotal[i] = 0;
+        }
+    }
+    // driver counters (microseconds)
+    prev_counter = instrumentationResults[11];  // counters not populated in all modes
+    for (int i = 12; i < 15; i++) {
+        if (instrumentationResults[i] > 0) {
+            instrumentationTotal[i] = (instrumentationResults[i] - prev_counter);
+            prev_counter = instrumentationResults[i];
+        } else {
+            instrumentationTotal[i] = 0;
+        }
+    }
+
+    for (int i = 0; i < 15; i++)
+        instrumentationResults[i] = 0;
 }
+
+const char* g_event_names[] = {
+"2.0 Gna2InstrumentationPointLibPreprocessing",
+"2.1 Gna2InstrumentationPointLibSubmission",
+"2.2 Gna2InstrumentationPointLibProcessing",
+"2.3 Gna2InstrumentationPointLibExecution",
+"2.4 Gna2InstrumentationPointLibDeviceRequestReady",
+"2.5 Gna2InstrumentationPointLibDeviceRequestSent",
+"2.6 Gna2InstrumentationPointLibDeviceRequestCompleted",
+"2.7 Gna2InstrumentationPointLibCompletion",
+"2.8 Gna2InstrumentationPointLibReceived",
+"2.9 Gna2InstrumentationPointDrvPreprocessing",
+"2.A Gna2InstrumentationPointDrvProcessing",
+"2.B Gna2InstrumentationPointDrvDeviceRequestCompleted",
+"2.C Gna2InstrumentationPointDrvCompletion",
+};
 
 void GNADeviceHelper::getGnaPerfCounters(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo>& retPerfCounters) {
     InferenceEngine::InferenceEngineProfileInfo info;
@@ -499,6 +539,11 @@ void GNADeviceHelper::getGnaPerfCounters(std::map<std::string, InferenceEngine::
     retPerfCounters["1.1 Total scoring time in HW"] = info;
     info.realTime_uSec = instrumentationTotal[1];
     retPerfCounters["1.2 Stall scoring time in HW"] = info;
+
+    for (int i = 2; i < 15; i++) {
+        info.realTime_uSec = instrumentationTotal[i];
+        retPerfCounters[g_event_names[i-2]] = info;
+    }
 }
 
 std::string GNADeviceHelper::getEffectiveGnaCompileTarget() const {

@@ -48,10 +48,25 @@ class GNADeviceHelper {
     bool isGnaLibVersion2_1 = false;
     bool isGnaLibVersion3_0 = false;
 
-    static const uint32_t TotalGna2InstrumentationPoints = 2;
+    //static const uint32_t TotalGna2InstrumentationPoints = 2;
+    static const uint32_t TotalGna2InstrumentationPoints = 15;
     Gna2InstrumentationPoint gna2InstrumentationPoints[TotalGna2InstrumentationPoints] = {
         Gna2InstrumentationPointHwTotalCycles,
-        Gna2InstrumentationPointHwStallCycles };
+        Gna2InstrumentationPointHwStallCycles,
+        Gna2InstrumentationPointLibPreprocessing,
+        Gna2InstrumentationPointLibSubmission,
+        Gna2InstrumentationPointLibProcessing,
+        Gna2InstrumentationPointLibExecution,
+        Gna2InstrumentationPointLibDeviceRequestReady,
+        Gna2InstrumentationPointLibDeviceRequestSent,
+        Gna2InstrumentationPointLibDeviceRequestCompleted,
+        Gna2InstrumentationPointLibCompletion,
+        Gna2InstrumentationPointLibReceived,
+        Gna2InstrumentationPointDrvPreprocessing,
+        Gna2InstrumentationPointDrvProcessing,
+        Gna2InstrumentationPointDrvDeviceRequestCompleted,
+        Gna2InstrumentationPointDrvCompletion,
+    };
 
     uint64_t instrumentationResults[TotalGna2InstrumentationPoints] = {};
     uint64_t instrumentationTotal[TotalGna2InstrumentationPoints] = {};
