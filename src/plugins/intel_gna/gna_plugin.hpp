@@ -180,7 +180,8 @@ class GNAPlugin : public InferenceEngine::IInferencePlugin {
                      uint32_t num_vector_elements,
                      uint32_t num_vector_stride);
 
-    void ExportScores(void *ptr_dst,
+    template <typename T>
+    void ExportScores(T *ptr_dst,
                      const void *ptr_src,
                      intel_dnn_orientation_t orientation,
                      uint32_t num_frames,
@@ -189,7 +190,8 @@ class GNAPlugin : public InferenceEngine::IInferencePlugin {
                      uint32_t num_active_elements,
                      uint32_t num_vector_stride,
                      InferenceEngine::Precision precision_in,
-                     InferenceEngine::Precision precision_out);
+                     InferenceEngine::Precision precision_out,
+                     const float scale_factor);
 
     template <typename T, typename U>
     void copyInputData(T *dst,

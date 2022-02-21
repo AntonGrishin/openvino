@@ -128,6 +128,7 @@ void GNAPlugin::copyInputData(T *dst,
     if (!dst || !src) {
         return;
     }
+
     if (orientation == kDnnInterleavedOrientation) {
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_vector_elements; j++) {
@@ -186,44 +187,53 @@ void GNAPlugin::copyInputData(T *dst,
     }
 }
 
-void GNAPlugin::ExportScores(void *ptr_dst,
+template<typename T>
+void GNAPlugin::ExportScores(T *ptr_dst,
                   const void *ptr_src,
                   intel_dnn_orientation_t orientation,
-                  uint32_t num_frames,
-                  uint32_t num_group,
-                  uint32_t num_vector_elements,
+                  uint32_t num_frames, //batchSize
+                  uint32_t num_group, // batchSize
+                  uint32_t num_vector_elements, //elementsperBatch
                   uint32_t num_active_elements,
                   uint32_t num_vector_stride,
                   Precision precision_in,
-                  Precision precision_out) {
+                  Precision precision_out,
+                  const float scale_factor) {
+    OV_ITT_SCOPED_TASK(itt::domains::GNAPlugin, "ExportScores");
+
     if (precision_out != Precision::I32 && precision_out != Precision::FP32) {
         THROW_GNA_EXCEPTION << "Unsupported target precision for infer : " << precision_out.name();
     }
+    const auto precision_in_size = precision_in.size();
+    const auto precision_out_size = precision_out.size();
     // source scores are possibly padded to multiple of 8 and possibly interleaved
     // rotate if necessary and only copy actual scores (not padding)
     if (orientation == kDnnInterleavedOrientation) {
-        int32_t *dst = reinterpret_cast<int32_t *>(ptr_dst);
+        T* dst = ptr_dst;
         const int8_t *src = reinterpret_cast<const int8_t*>(ptr_src);
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_active_elements; j++) {
-                auto input_ptr = src + (j * num_group + i) * precision_in.size();
+                auto input_ptr = src + (j * num_group + i) * precision_in_size;
                 auto dst_ptr = dst + (i * num_vector_elements + j);
-
                 switch (precision_in) {
                     case Precision::I8 : {
-                        *dst_ptr = static_cast<int32_t>(*reinterpret_cast<const int8_t*>(input_ptr));
+                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int8_t*>(input_ptr));
                         break;
                     }
                     case Precision::I16 : {
-                        *dst_ptr  = static_cast<int32_t>(*reinterpret_cast<const int16_t*>(input_ptr));
+                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int16_t*>(input_ptr));
                         break;
                     }
                     case Precision::I32 : {
-                        *dst_ptr = *reinterpret_cast<const int32_t *>(input_ptr);
+                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr));
                         break;
                     }
                     default:
                         THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
+                }
+
+                if (gnadevice) {
+                    *dst_ptr /= scale_factor;
                 }
             }
             for (uint32_t j = num_active_elements; j < num_vector_elements; j++) {
@@ -235,20 +245,45 @@ void GNAPlugin::ExportScores(void *ptr_dst,
             case Precision::I8 :
             case Precision::I32 : {
                 for (uint32_t i = 0; i < num_frames; i++) {
-                    void* ptr_dst_vec = reinterpret_cast<uint8_t*>(ptr_dst) + i * num_vector_elements * precision_out.size();
-                    const void* ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in.size();
-                    memset(ptr_dst_vec, 0, num_vector_elements * precision_out.size());
-                    ie_memcpy(ptr_dst_vec, num_active_elements * precision_out.size(),
-                        ptr_src_vec, num_active_elements * precision_in.size());
+                    uint8_t* ptr_dst_vec = reinterpret_cast<uint8_t*>(ptr_dst) + i * num_vector_elements * precision_out_size;
+                    const uint8_t* ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in_size;
+                    memset(ptr_dst_vec, 0, num_vector_elements * precision_out_size);
+
+                    if (!ptr_src_vec || num_active_elements * precision_in_size > num_active_elements * precision_out_size ||
+                        num_active_elements * precision_in_size > (ptr_dst_vec > ptr_src_vec ? ((uintptr_t)ptr_dst_vec - (uintptr_t)ptr_src_vec)
+                                               : ((uintptr_t)ptr_src_vec - (uintptr_t)ptr_dst_vec))) {
+                        // zero out dest if error detected
+                        memset(ptr_dst_vec, 0, num_active_elements * precision_out_size);
+                    } else {
+                        for (uint32_t j = 0; j < num_active_elements * precision_in_size; ++j) {
+                            ptr_dst_vec[j] = ptr_src_vec[j];
+                        }
+                    }
+                }
+                if (gnadevice) {
+                    T* dst = ptr_dst;
+                    const int8_t* src = reinterpret_cast<const int8_t*>(ptr_dst);
+                    for (uint32_t i = 0; i < num_frames * num_active_elements; i++) {
+                        auto input_ptr = src + i;
+                        if (Precision::I8 == precision_in) {
+                            dst[i] = static_cast<T>(*input_ptr) / scale_factor;
+                        } else {
+                            dst[i] = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr)) / scale_factor;
+                        }
+                    }
+
                 }
                 break;
             }
             case Precision::I16 : {
                 for (uint32_t i = 0; i < num_frames; i++) {
-                    auto ptr_dst_vec = reinterpret_cast<int32_t*>(ptr_dst) + i * num_vector_elements;
+                    auto ptr_dst_vec = ptr_dst + i * num_vector_elements;
                     auto ptr_src_vec = reinterpret_cast<const int16_t*>(ptr_src) + i * num_vector_stride;
                     for (uint32_t j = 0; j < num_vector_elements; j++) {
-                        ptr_dst_vec[j] = ptr_src_vec[j];
+                        ptr_dst_vec[j] = static_cast<T>(ptr_src_vec[j]);
+                        if (gnadevice) {
+                            ptr_dst_vec[j] /= scale_factor;
+                        }
                     }
                 }
                 break;
@@ -257,6 +292,7 @@ void GNAPlugin::ExportScores(void *ptr_dst,
                 THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
         }
     }
+
 }
 
 void GNAPlugin::ImportFrames(void *ptr_dst,
@@ -1343,16 +1379,34 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
                                         transpose_output_info->second);
         }
 
-        ExportScores(outputBlob->buffer(),
-                        outputDesc.ptrs[request_idx],
-                        outputDesc.orientation,
-                        batchSize,
-                        batchSize,
-                        elementsPerBatch,
-                        elementsPerBatch,
-                        elementsPerBatch,
-                        outputDesc.tensor_precision,
-                        outputDesc.model_precision);
+        const auto& outputTensorPrecision = outputBlob->getTensorDesc().getPrecision();
+        if (InferenceEngine::Precision::I32 == outputTensorPrecision || !gnadevice) {
+            ExportScores(outputBlob->cbuffer().as<int32_t*>(),
+                         outputDesc.ptrs[request_idx],
+                         outputDesc.orientation,
+                         batchSize,
+                         batchSize,
+                         elementsPerBatch,
+                         elementsPerBatch,
+                         elementsPerBatch,
+                         outputDesc.tensor_precision,
+                         outputDesc.model_precision,
+                         outputDesc.scale_factor);
+        } else if (InferenceEngine::Precision::FP32 == outputTensorPrecision && gnadevice) {
+            ExportScores(outputBlob->cbuffer().as<float*>(),
+                         outputDesc.ptrs[request_idx],
+                         outputDesc.orientation,
+                         batchSize,
+                         batchSize,
+                         elementsPerBatch,
+                         elementsPerBatch,
+                         elementsPerBatch,
+                         outputDesc.tensor_precision,
+                         outputDesc.model_precision,
+                         outputDesc.scale_factor);
+        } else {
+            THROW_GNA_EXCEPTION << "Unsupported target precision: " << outputTensorPrecision << std::endl;
+        }
 
         if (gnadevice) {
 #ifdef PLOT
@@ -1364,42 +1418,8 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
             num_infers++;
             if (f) {
                 if (isScalar) {
-                    fprintf(f, "%d ", outputBlob->cbuffer().as<int32_t*>()[0]);
+                    fprintf(f, "%d ", outputBlob->cbuffer().as<float*>()[0]);
                 } else {
-                    for (int i = 0; i < batchSize; i++) {
-                        for (int j = 0; j < dims[dims.size() - 1]; j++) {
-                            fprintf(f, "%d ", outputBlob->cbuffer().as<int32_t*>()[dims[dims.size() - 1] * i + j]);
-                        }
-                        fprintf(f, "\n");
-                    }
-                }
-                fprintf(f, "\n\n");
-            }
-#endif
-            switch (outputBlob->getTensorDesc().getPrecision()) {
-            case InferenceEngine::Precision::FP32 :
-                UnscaleAndCast(outputBlob->buffer().as<float*>(),
-                              outputBlob->buffer().as<int32_t*>(),
-                              elementsPerBatch, batchSize, outputDesc.scale_factor);
-                break;
-
-            case InferenceEngine::Precision::I32 :
-                UnscaleAndCast(outputBlob->buffer().as<int32_t*>(),
-                              outputBlob->buffer().as<int32_t*>(),
-                              elementsPerBatch, batchSize, outputDesc.scale_factor);
-                break;
-
-            default:
-                THROW_GNA_EXCEPTION << "Unsupported target precision: " << outputBlob->getTensorDesc().getPrecision() << std::endl;
-                break;
-            }
-
-#ifdef PLOT
-            if (f) {
-                if (isScalar) {
-                    fprintf(f, "%.2f ", outputBlob->cbuffer().as<float*>()[0]);
-                } else {
-                    auto dims = outputBlob->getTensorDesc().getDims();
                     for (int i = 0; i < batchSize; i++) {
                         for (int j = 0; j < dims[dims.size() - 1]; j++) {
                             fprintf(f, "%.2f ", outputBlob->cbuffer().as<float*>()[dims[dims.size() - 1] * i + j]);
