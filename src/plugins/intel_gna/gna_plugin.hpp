@@ -181,6 +181,12 @@ class GNAPlugin : public InferenceEngine::IInferencePlugin {
                      uint32_t num_vector_stride);
 
     template <typename T>
+    inline void UpscaleAndCast(T* dst_ptr,
+                       const uint8_t* input_ptr,
+                       const InferenceEngine::Precision& precision_in,
+                       const float& scale_factor);
+
+    template <typename T>
     void ExportScores(T *ptr_dst,
                      const void *ptr_src,
                      intel_dnn_orientation_t orientation,

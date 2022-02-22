@@ -186,25 +186,25 @@ void GNAPlugin::copyInputData(T *dst,
     }
 }
 
-template<typename T>
-inline void UpscaleAndCast(T* dst_ptr, const uint8_t* input_ptr, Precision precision_in, bool isGNADevice, const float scale_factor) {
+template <typename T>
+void GNAPlugin::UpscaleAndCast(T* dst_ptr, const uint8_t* input_ptr, const Precision& precision_in, const float& scale_factor) {
     switch (precision_in) {
-        case Precision::I8 : {
+        case Precision::I8: {
             *dst_ptr = static_cast<T>(*reinterpret_cast<const int8_t*>(input_ptr));
             break;
         }
-        case Precision::I16 : {
+        case Precision::I16: {
             *dst_ptr = static_cast<T>(*reinterpret_cast<const int16_t*>(input_ptr));
             break;
         }
-        case Precision::I32 : {
+        case Precision::I32: {
             *dst_ptr = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr));
             break;
         }
         default:
             THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
     }
-    if (isGNADevice) {
+    if (gnadevice) {
         *dst_ptr /= scale_factor;
     }
 }
@@ -234,7 +234,7 @@ void GNAPlugin::ExportScores(T *ptr_dst,
             for (uint32_t j = 0; j < num_active_elements; j++) {
                 auto dst_ptr = ptr_dst + (i * num_vector_elements + j);
                 auto input_ptr = src + (j * num_group + i) * precision_in_size;
-                UpscaleAndCast(dst_ptr, input_ptr, precision_in, gnadevice != nullptr, scale_factor);
+                UpscaleAndCast(dst_ptr, input_ptr, precision_in, scale_factor);
             }
             for (uint32_t j = num_active_elements; j < num_vector_elements; j++) {
                 ptr_dst[i * num_vector_elements + j] = 0;
@@ -249,7 +249,7 @@ void GNAPlugin::ExportScores(T *ptr_dst,
             for (uint32_t j = 0; j < num_vector_elements; j++) {
                 auto dst_ptr = ptr_dst_vec + j;
                 auto input_ptr = ptr_src_vec + j * precision_in_size;
-                UpscaleAndCast(dst_ptr, input_ptr, precision_in, gnadevice != nullptr, scale_factor);
+                UpscaleAndCast(dst_ptr, input_ptr, precision_in, scale_factor);
             }
         }
     }
