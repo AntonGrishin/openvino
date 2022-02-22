@@ -187,6 +187,29 @@ void GNAPlugin::copyInputData(T *dst,
 }
 
 template<typename T>
+inline void UpscaleAndCast(T* dst_ptr, const uint8_t* input_ptr, Precision precision_in, bool isGNADevice, const float scale_factor) {
+    switch (precision_in) {
+        case Precision::I8 : {
+            *dst_ptr = static_cast<T>(*reinterpret_cast<const int8_t*>(input_ptr));
+            break;
+        }
+        case Precision::I16 : {
+            *dst_ptr = static_cast<T>(*reinterpret_cast<const int16_t*>(input_ptr));
+            break;
+        }
+        case Precision::I32 : {
+            *dst_ptr = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr));
+            break;
+        }
+        default:
+            THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
+    }
+    if (isGNADevice) {
+        *dst_ptr /= scale_factor;
+    }
+}
+
+template<typename T>
 void GNAPlugin::ExportScores(T *ptr_dst,
                   const void *ptr_src,
                   intel_dnn_orientation_t orientation,
@@ -201,82 +224,33 @@ void GNAPlugin::ExportScores(T *ptr_dst,
     if (precision_out != Precision::I32 && precision_out != Precision::FP32) {
         THROW_GNA_EXCEPTION << "Unsupported target precision for infer : " << precision_out.name();
     }
+
     const auto precision_in_size = precision_in.size();
-    const auto precision_out_size = precision_out.size();
     // source scores are possibly padded to multiple of 8 and possibly interleaved
     // rotate if necessary and only copy actual scores (not padding)
     if (orientation == kDnnInterleavedOrientation) {
-        T* dst = ptr_dst;
-        const int8_t *src = reinterpret_cast<const int8_t*>(ptr_src);
+        const uint8_t *src = reinterpret_cast<const uint8_t*>(ptr_src);
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_active_elements; j++) {
+                auto dst_ptr = ptr_dst + (i * num_vector_elements + j);
                 auto input_ptr = src + (j * num_group + i) * precision_in_size;
-                auto dst_ptr = dst + (i * num_vector_elements + j);
-                switch (precision_in) {
-                    case Precision::I8 : {
-                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int8_t*>(input_ptr));
-                        break;
-                    }
-                    case Precision::I16 : {
-                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int16_t*>(input_ptr));
-                        break;
-                    }
-                    case Precision::I32 : {
-                        *dst_ptr = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr));
-                        break;
-                    }
-                    default:
-                        THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
-                }
-
-                if (gnadevice) {
-                    *dst_ptr /= scale_factor;
-                }
+                UpscaleAndCast(dst_ptr, input_ptr, precision_in, gnadevice != nullptr, scale_factor);
             }
             for (uint32_t j = num_active_elements; j < num_vector_elements; j++) {
-                dst[i * num_vector_elements + j] = 0;
+                ptr_dst[i * num_vector_elements + j] = 0;
             }
         }
     } else {
-        switch (precision_in) {
-            case Precision::I8 :
-            case Precision::I32 : {
-                for (uint32_t i = 0; i < num_frames; i++) {
-                    void* ptr_dst_vec = reinterpret_cast<uint8_t*>(ptr_dst) + i * num_vector_elements * precision_out_size;
-                    const void* ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in_size;
-                    memset(ptr_dst_vec, 0, num_vector_elements * precision_out_size);
-                    ie_memcpy(ptr_dst_vec, num_active_elements * precision_out_size,
-                        ptr_src_vec, num_active_elements * precision_in_size);
-                }
-                if (gnadevice) {
-                    T* dst = reinterpret_cast<T*>(ptr_dst);
-                    const int8_t* src = reinterpret_cast<const int8_t*>(ptr_dst);
-                    for (uint32_t i = 0; i < num_frames * num_active_elements; i++) {
-                        auto input_ptr = src + i * precision_out_size;
-                        if (Precision::I8 == precision_in) {
-                            dst[i] = static_cast<T>(*input_ptr) / scale_factor;
-                        } else {
-                            dst[i] = static_cast<T>(*reinterpret_cast<const int32_t*>(input_ptr)) / scale_factor;
-                        }
-                    }
-                }
-                break;
+        for (uint32_t i = 0; i < num_frames; i++) {
+            auto ptr_src_vec = reinterpret_cast<const uint8_t*>(ptr_src) + i * num_vector_stride * precision_in_size;
+            T* ptr_dst_vec = ptr_dst + i * num_vector_elements;
+            memset(ptr_dst_vec, 0, num_vector_elements);
+
+            for (uint32_t j = 0; j < num_vector_elements; j++) {
+                auto dst_ptr = ptr_dst_vec + j;
+                auto input_ptr = ptr_src_vec + j * precision_in_size;
+                UpscaleAndCast(dst_ptr, input_ptr, precision_in, gnadevice != nullptr, scale_factor);
             }
-            case Precision::I16 : {
-                for (uint32_t i = 0; i < num_frames; i++) {
-                    auto ptr_dst_vec = ptr_dst + i * num_vector_elements;
-                    auto ptr_src_vec = reinterpret_cast<const int16_t*>(ptr_src) + i * num_vector_stride;
-                    for (uint32_t j = 0; j < num_vector_elements; j++) {
-                        ptr_dst_vec[j] = static_cast<T>(ptr_src_vec[j]);
-                        if (gnadevice) {
-                            ptr_dst_vec[j] /= scale_factor;
-                        }
-                    }
-                }
-                break;
-            }
-            default:
-                THROW_GNA_EXCEPTION << "Unsupported output layer precision: " << precision_in.name();
         }
     }
 }
