@@ -249,10 +249,10 @@ void GNAPlugin::ExportScores(T *ptr_dst,
                         ptr_src_vec, num_active_elements * precision_in_size);
                 }
                 if (gnadevice) {
-                    T* dst = ptr_dst;
+                    T* dst = reinterpret_cast<T*>(ptr_dst);
                     const int8_t* src = reinterpret_cast<const int8_t*>(ptr_dst);
                     for (uint32_t i = 0; i < num_frames * num_active_elements; i++) {
-                        auto input_ptr = src + i;
+                        auto input_ptr = src + i * precision_out_size;
                         if (Precision::I8 == precision_in) {
                             dst[i] = static_cast<T>(*input_ptr) / scale_factor;
                         } else {
