@@ -221,6 +221,10 @@ void GNAPlugin::ExportScores(T *ptr_dst,
                   Precision precision_in,
                   Precision precision_out,
                   const float scale_factor) {
+    if (ptr_src == nullptr || ptr_dst == nullptr) {
+        THROW_GNA_EXCEPTION << "Received null pointer arguments";
+    }
+
     if (precision_out != Precision::I32 && precision_out != Precision::FP32) {
         THROW_GNA_EXCEPTION << "Unsupported target precision for infer : " << precision_out.name();
     }
