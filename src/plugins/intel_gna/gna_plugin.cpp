@@ -104,6 +104,11 @@ inline uint32_t ToByteSize(const Gna2DataType type) {
     }
 }
 
+typedef std::chrono::high_resolution_clock Time;
+typedef std::chrono::duration<double, std::ratio<1, 1000>> ms;
+typedef std::chrono::duration<double, std::ratio<1, 1000000>> us;
+typedef std::chrono::duration<float> fsec;
+
 constexpr uint32_t GNAPluginNS::GNAPlugin::FAKE_REQUEST_CONFIG_ID;
 
 using namespace InferenceEngine;
@@ -209,6 +214,102 @@ void GNAPlugin::UpscaleAndCast(T* dst_ptr, const uint8_t* input_ptr, const Preci
     }
 }
 
+#include <immintrin.h>
+extern inline void QuantizeVector16_avx(const float* ptr_float_memory,
+                                        int16_t* ptr_int_memory,
+                                        uint32_t num_elements,
+                                        float scale_factor) {
+    float* ptr_float_feat = (float*)ptr_float_memory;
+    int16_t* ptr_int16 = (int16_t*)ptr_int_memory;
+
+    uint32_t moves = num_elements / 8;
+    uint32_t mod = num_elements % 8;
+    uint32_t i, j;
+
+    __m256 v, zero, half, neg_half, scale_factores, mask, rounding_values, min, max, values;
+
+#ifdef ROUND_AND_CAST
+    __m256i tmp;
+    __m128i res;
+#endif
+
+    zero = _mm256_setzero_ps();
+    half = _mm256_set1_ps(0.5f);
+    neg_half = _mm256_set1_ps(-0.5f);
+    scale_factores = _mm256_set1_ps(scale_factor);
+    max = _mm256_set1_ps(32767.0f);
+    min = _mm256_set1_ps(-32768.0f);
+
+    for (i = 0; i < moves; i++, ptr_float_feat += 8, ptr_int16 += 8) {
+        v = _mm256_load_ps(ptr_float_feat);
+
+        // rounding_values = (v>0) ? 0.5f : -0.5f;
+        mask = _mm256_cmp_ps(v, zero, _CMP_LT_OQ);
+        rounding_values = _mm256_blendv_ps(half, neg_half, mask);
+
+        // values = v * scale_factores +  rounding_values
+        values = _mm256_fmadd_ps(v, scale_factores, rounding_values);
+
+        // shrink to <-32768.0f, 32767.0f>
+        values = _mm256_min_ps(values, max);
+        values = _mm256_max_ps(values, min);
+
+        // round and cast float to int16 ... much faster  than "only cast" in MS compiler ??
+#ifdef ROUND_AND_CAST
+        tmp = _mm256_cvtps_epi32(values);
+        tmp = _mm256_packs_epi32(tmp, _mm256_setzero_si256());
+        tmp = _mm256_permute4x64_epi64(tmp, 0xD8);
+        res = _mm256_castsi256_si128(tmp);
+
+        _mm_storeu_si128((__m128i*)ptr_int16, res);
+        // for (j = 0; j < 8; j++)
+        //	ptr_int16[j] = res.m128i_i16[j];
+#else
+        for (j = 0; j < 8; j++)
+            ptr_int16[j] = (int16_t)values.m256_f32[j];
+#endif  // ROUND_AND_CAST
+    }
+
+    for (i = 0; i < mod; i++) {
+        float rounding_value = (ptr_float_feat[i] > 0) ? 0.5f : -0.5f;
+        float value = ptr_float_feat[i] * scale_factor + rounding_value;
+        if (value > 32767.0) {
+            ptr_int16[i] = 32767;
+        } else if (value < -32768.0) {
+            ptr_int16[i] = -32768;
+        } else {
+            ptr_int16[i] = (int16_t)value;
+        }
+    }
+}
+
+extern inline void DeQuantizeVector16_avx(const int32_t* ptr_int_memory,
+                                        float* ptr_float_memory,
+                                        uint32_t num_elements,
+                                        float scale_factor) {
+    float* ptr_float = (float*)ptr_float_memory;
+    int32_t* ptr_int32_feat = (int32_t*)ptr_int_memory;
+    scale_factor = 1.0f/ scale_factor;
+    uint32_t moves = num_elements / 8;
+    uint32_t mod = num_elements % 8;
+    uint32_t i, j;
+
+    __m256 v, scale_factores, values;
+    scale_factores = _mm256_set1_ps(scale_factor);
+    for (i = 0; i < moves; i++, ptr_float += 8, ptr_int32_feat += 8) {
+        for (j = 0; j < 8; j++)
+            v.m256_f32[j] = (float)ptr_int32_feat[j];
+
+        // values = v * 1/scale_factores
+        values = _mm256_mul_ps(v, scale_factores);
+        _mm256_store_ps(ptr_float, values);
+    }
+
+    for (i = 0; i < mod; i++) {
+        ptr_float[i] = (float)ptr_int32_feat[i] / scale_factor;
+    }
+}
+
 template<typename T>
 void GNAPlugin::ExportScores(T *ptr_dst,
                   const void *ptr_src,
@@ -221,6 +322,8 @@ void GNAPlugin::ExportScores(T *ptr_dst,
                   Precision precision_in,
                   Precision precision_out,
                   const float scale_factor) {
+    OV_ITT_SCOPED_TASK(itt::domains::GNAPlugin, "ExportScores");
+
     if (ptr_src == nullptr || ptr_dst == nullptr) {
         THROW_GNA_EXCEPTION << "Received null pointer arguments";
     }
@@ -233,7 +336,9 @@ void GNAPlugin::ExportScores(T *ptr_dst,
     // source scores are possibly padded to multiple of 8 and possibly interleaved
     // rotate if necessary and only copy actual scores (not padding)
     if (orientation == kDnnInterleavedOrientation) {
-        const uint8_t *src = reinterpret_cast<const uint8_t*>(ptr_src);
+        const uint8_t* src = reinterpret_cast<const uint8_t*>(ptr_src);
+        //DeQuantizeVector16_avx(src, ptr_dst, num_frames * num_active_elements, scale_factor);
+
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_active_elements; j++) {
                 auto dst_ptr = ptr_dst + (i * num_vector_elements + j);
@@ -268,6 +373,7 @@ void GNAPlugin::ImportFrames(void *ptr_dst,
                             uint32_t num_group,
                             uint32_t num_vector_elements,
                             uint32_t num_vector_stride) {
+    OV_ITT_SCOPED_TASK(itt::domains::GNAPlugin, "ImportFrames");
     switch (input_precision) {
     case Precision::U8:
     case Precision::I8:
@@ -304,6 +410,7 @@ void GNAPlugin::ImportFrames(void *ptr_dst,
         } else {
             if (!gnaFlags->input_low_precision) {
                 auto dst = reinterpret_cast<int16_t*>(ptr_dst);
+                //QuantizeVector16_avx(src, dst, num_vector_elements * num_frames, scaleFactor);
                 copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
             } else {
                 auto dst = reinterpret_cast<int8_t*>(ptr_dst);
@@ -353,7 +460,6 @@ void GNAPlugin::InitGNADevice() {
 }
 
 void GNAPlugin::UpdateInputScaleFromNetwork(InferenceEngine::CNNNetwork& network) {
-    OV_ITT_SCOPED_TASK(itt::domains::GNA_LT, "UpdateInputScaleFromNetwork");
     // fp32 emulation mode dont need any modifications to configuration
     if (config.gnaFlags.sw_fp32) return;
 
@@ -1282,6 +1388,7 @@ bool GNAPlugin::Wait(uint32_t request_idx) {
 }
 
 GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
+
     auto& nnets = gnaRequestConfigToRequestIdMap;
     // TODO: GNA2: check whether necessary
     if (nnets.size() <= request_idx) return GNA_REQUEST_COMPLETED;
@@ -1324,8 +1431,8 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
         auto is3D = outputBlob->getTensorDesc().getLayout() == Layout::CHW;
         auto batchSize = (is1D || isScalar || is3D) ? 1 : dims[0];
         auto elementsPerBatch = isScalar ? 1 : (is1D ? dims.front() : details::product(++std::begin(dims), std::end(dims)));
-
         auto transpose_output_info = transpose_outputs_info.find(outputBlobIt.first);
+
         if (transpose_output_info != std::end(transpose_outputs_info) && FoundPartToTranspose(transpose_output_info->second)) {
             size_t transposed_data_size = 0;
             for (const auto &part_transposition_info : transpose_output_info->second) {
@@ -1335,6 +1442,7 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
                 THROW_GNA_EXCEPTION << "Transposed data size (" << transposed_data_size
                                     << ") do not match output buffer length of " << elementsPerBatch;
             }
+
             ConvertTensorFromNCHWToNHWC(outputDesc.tensor_precision.size(),
                                         batchSize,
                                         elementsPerBatch,
@@ -1356,7 +1464,8 @@ GnaWaitStatus GNAPlugin::WaitFor(uint32_t request_idx, int64_t millisTimeout) {
                          outputDesc.tensor_precision,
                          outputDesc.model_precision,
                          outputDesc.scale_factor);
-        } else if (InferenceEngine::Precision::FP32 == outputTensorPrecision && gnadevice) {
+        } else
+        if (InferenceEngine::Precision::FP32 == outputTensorPrecision && gnadevice) {
             ExportScores(outputBlob->cbuffer().as<float*>(),
                          outputDesc.ptrs[request_idx],
                          outputDesc.orientation,

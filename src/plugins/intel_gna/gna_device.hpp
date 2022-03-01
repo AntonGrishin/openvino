@@ -53,7 +53,7 @@ class GNADeviceHelper {
     Gna2InstrumentationPoint gna2InstrumentationPoints[TotalGna2InstrumentationPoints] = {
         Gna2InstrumentationPointHwTotalCycles,
         Gna2InstrumentationPointHwStallCycles,
-        Gna2InstrumentationPointLibPreprocessing,
+        Gna2InstrumentationPointLibPreprocessing, // 2
         Gna2InstrumentationPointLibSubmission,
         Gna2InstrumentationPointLibProcessing,
         Gna2InstrumentationPointLibExecution,
@@ -61,11 +61,11 @@ class GNADeviceHelper {
         Gna2InstrumentationPointLibDeviceRequestSent,
         Gna2InstrumentationPointLibDeviceRequestCompleted,
         Gna2InstrumentationPointLibCompletion,
-        Gna2InstrumentationPointLibReceived,
-        Gna2InstrumentationPointDrvPreprocessing,
+        Gna2InstrumentationPointLibReceived, //10
+        Gna2InstrumentationPointDrvPreprocessing, // 11
         Gna2InstrumentationPointDrvProcessing,
         Gna2InstrumentationPointDrvDeviceRequestCompleted,
-        Gna2InstrumentationPointDrvCompletion,
+        Gna2InstrumentationPointDrvCompletion, // 14
     };
 
     uint64_t instrumentationResults[TotalGna2InstrumentationPoints] = {};

@@ -16,6 +16,6 @@ namespace itt {
 namespace domains {
     OV_ITT_DOMAIN(GNAPlugin);
     OV_ITT_DOMAIN(GNA_LT);
-}
+    }
 }
 }

@@ -344,6 +344,7 @@ int main(int argc, char* argv[]) {
         }
         // -----------------------------------------------------------------------------------------------------
         // --------------------------- Step 5. Do inference --------------------------------------------------------
+
         for (size_t next_output = 0; next_output < count_file; next_output++) {
             std::vector<std::vector<uint8_t>> ptrUtterances;
             std::vector<uint8_t> ptrScores;
@@ -382,6 +383,10 @@ int main(int argc, char* argv[]) {
                                     &currentNumFrames,
                                     &currentNumFrameElementsInput,
                                     &currentNumBytesPerElementInput);
+                    printf("currentNumFrames %u\n", currentNumFrames);
+                    printf("currentNumFrameElementsInput %u\n", currentNumFrameElementsInput);
+                    printf("currentNumBytesPerElementInput %u\n", currentNumBytesPerElementInput);
+
                     if (numFrames == 0) {
                         numFrames = currentNumFrames;
                     } else if (numFrames != currentNumFrames) {
@@ -427,6 +432,20 @@ int main(int argc, char* argv[]) {
                                                    &numBytesPerElementReference);
                 }
                 double totalTime = 0.0;
+                double waitTime = 0.0;
+                double collectPCTime = 0.0;
+                double inferRequestTime = 0.0;
+                double getTensorTime = 0.0;
+                double fetchTime = 0.0;
+                double iterateTime = 0.0;
+
+                auto waitTimeT0 = Time::now();
+                auto collectPCTimeT0 = Time::now();
+                auto inferRequestTimeT0 = Time::now();
+                auto getTensorTimeT0 = Time::now();
+                auto fetchTimeT0 = Time::now();
+                auto iterateTimeT0 = Time::now();
+
                 std::cout << "Utterance " << utteranceIndex << ": " << std::endl;
                 clear_score_error(&totalError);
                 totalError.threshold = frameError.threshold = MAX_SCORE_DIFFERENCE;
@@ -462,7 +481,9 @@ int main(int argc, char* argv[]) {
 
                         /* waits until inference result becomes available */
                         if (inferRequest.frameIndex != -1) {
+                            waitTimeT0 = Time::now();
                             inferRequest.inferRequest.wait();
+                            waitTime += std::chrono::duration_cast<ms>(Time::now() - waitTimeT0).count();
                             if (inferRequest.frameIndex >= 0) {
                                 if (!FLAGS_o.empty()) {
                                     /* Prepare output data for save to file in future */
@@ -497,10 +518,13 @@ int main(int argc, char* argv[]) {
                                     update_score_error(&frameError, &totalError);
                                 }
                                 if (FLAGS_pc) {
+                                    collectPCTimeT0 = Time::now();
                                     // retrieve new counters
                                     get_performance_counters(inferRequest.inferRequest, callPerfMap);
                                     // summarize retrieved counters with all previous
                                     sum_performance_counters(callPerfMap, utterancePerfMap, totalNumberOfRunsOnHw);
+                                    collectPCTime +=
+                                        std::chrono::duration_cast<ms>(Time::now() - collectPCTimeT0).count();
                                 }
                             }
                             // -----------------------------------------------------------------------------------------------------
@@ -509,6 +533,7 @@ int main(int argc, char* argv[]) {
                             inferRequest.frameIndex = -1;
                             continue;
                         }
+                        iterateTimeT0 = Time::now();
                         ptrInputBlobs.clear();
                         if (FLAGS_iname.empty()) {
                             for (auto& input : cInputInfo) {
@@ -543,13 +568,18 @@ int main(int argc, char* argv[]) {
                                        (batchSize - numFramesThisBatch) * numFrameElementsInput[i]);
                             }
                         }
+                        iterateTime += std::chrono::duration_cast<ms>(Time::now() - iterateTimeT0).count();
                         // -----------------------------------------------------------------------------------------------------
                         int index = static_cast<int>(frameIndex) - (FLAGS_cw_l + FLAGS_cw_r);
                         /* Starting inference in asynchronous mode*/
+                        inferRequestTimeT0 = Time::now();
                         inferRequest.inferRequest.start_async();
+                        inferRequestTime += std::chrono::duration_cast<ms>(Time::now() - inferRequestTimeT0).count();
                         inferRequest.frameIndex = index < 0 ? -2 : index;
                         inferRequest.numFramesThisBatch = numFramesThisBatch;
                         frameIndex += numFramesThisBatch;
+
+                        fetchTimeT0 = Time::now();
                         for (size_t j = 0; j < inputFiles.size(); j++) {
                             if (FLAGS_cw_l > 0 || FLAGS_cw_r > 0) {
                                 int idx = frameIndex - FLAGS_cw_l;
@@ -566,6 +596,7 @@ int main(int argc, char* argv[]) {
                                 inputFrame[j] += sizeof(float) * numFrameElementsInput[j] * numFramesThisBatch;
                             }
                         }
+                        fetchTime += std::chrono::duration_cast<ms>(Time::now() - fetchTimeT0).count();
                         inferRequestFetched |= true;
                     }
                     /** Inference was finished for current frame **/
@@ -574,10 +605,8 @@ int main(int argc, char* argv[]) {
                         continue;
                     }
                 }
-                t1 = Time::now();
-                fsec fs = t1 - t0;
-                ms d = std::chrono::duration_cast<ms>(fs);
-                totalTime += d.count();
+
+                totalTime += std::chrono::duration_cast<ms>(Time::now() - t0).count();
                 // resetting state between utterances
                 for (auto&& state : inferRequests.begin()->inferRequest.query_state()) {
                     state.reset();
@@ -610,6 +639,15 @@ int main(int argc, char* argv[]) {
                 std::cout << "Frames in utterance:\t\t\t" << numFrames << " frames" << std::endl;
                 std::cout << "Average Infer time per frame:\t\t" << totalTime / static_cast<double>(numFrames) << " ms"
                           << std::endl;
+
+                std::cout << "waitTime:\t" << waitTime << " ms" << std::endl;
+                std::cout << "collectPCTime:\t" << collectPCTime << " ms" << std::endl;
+                std::cout << "inferRequestTime:\t" << inferRequestTime << " ms" << std::endl;
+                std::cout << "getTensorTime:\t" << getTensorTime << " ms" << std::endl;
+                std::cout << "fetchTime:\t" << fetchTime << " ms" << std::endl;
+                std::cout << "iterateTime:\t" << iterateTime << " ms" << std::endl;
+
+
                 if (FLAGS_pc) {
                     // print performance results
                     print_performance_counters(utterancePerfMap,

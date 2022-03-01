@@ -380,8 +380,11 @@ const std::map <const std::pair<Gna2OperationType, int32_t>, const std::string> 
             {{Gna2OperationTypeThreshold, 1}, "Output"}
 };
 
+#include "gna_itt.hpp"
 GnaWaitStatus GNADeviceHelper::wait(uint32_t reqId, int64_t millisTimeout) {
     std::unique_lock<std::mutex> lockGnaCalls{ acrossPluginsSync };
+    OV_ITT_SCOPED_TASK(GNAPluginNS::itt::domains::GNAPlugin, "WaitFor");
+
     const auto status = Gna2RequestWait(reqId, millisTimeout);
     if (status == Gna2StatusWarningDeviceBusy) {
         return GNA_REQUEST_PENDING;
@@ -488,7 +491,7 @@ void GNADeviceHelper::updateGnaPerfCounters() {
     instrumentationTotal[2] = 0;
     instrumentationTotal[11] = 0;
     // library counters (microseconds)
-    prev_counter = instrumentationResults[2]; // counters not populated in all modes
+    prev_counter = instrumentationResults[2];  // counters not populated in all modes
     for (int i = 3; i < 11; i++) {
         if (instrumentationResults[i] > 0) {
             instrumentationTotal[i] = (instrumentationResults[i] - prev_counter);
@@ -507,6 +510,8 @@ void GNADeviceHelper::updateGnaPerfCounters() {
             instrumentationTotal[i] = 0;
         }
     }
+    //instrumentationTotal[15] = instrumentationResults[10] - instrumentationResults[2];
+    //instrumentationTotal[16] = instrumentationResults[14] - instrumentationResults[11];
 
     for (int i = 0; i < 15; i++)
         instrumentationResults[i] = 0;
@@ -539,11 +544,14 @@ void GNADeviceHelper::getGnaPerfCounters(std::map<std::string, InferenceEngine::
     retPerfCounters["1.1 Total scoring time in HW"] = info;
     info.realTime_uSec = instrumentationTotal[1];
     retPerfCounters["1.2 Stall scoring time in HW"] = info;
-
     for (int i = 2; i < 15; i++) {
         info.realTime_uSec = instrumentationTotal[i];
-        retPerfCounters[g_event_names[i-2]] = info;
+        retPerfCounters[g_event_names[i - 2]] = info;
     }
+    //info.realTime_uSec = instrumentationTotal[15];
+    //retPerfCounters["2.D Total GNA lib time"] = info;
+    //info.realTime_uSec = instrumentationTotal[16];
+    //retPerfCounters["2.E Total Gna drv time"] = info;
 }
 
 std::string GNADeviceHelper::getEffectiveGnaCompileTarget() const {

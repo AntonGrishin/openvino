@@ -12,6 +12,7 @@
 
 typedef std::chrono::high_resolution_clock Time;
 typedef std::chrono::duration<double, std::ratio<1, 1000>> ms;
+typedef std::chrono::duration<double, std::ratio<1, 1000000>> us;
 typedef std::chrono::duration<float> fsec;
 
 /**
