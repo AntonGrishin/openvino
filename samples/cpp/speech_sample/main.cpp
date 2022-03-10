@@ -454,7 +454,13 @@ int main(int argc, char* argv[]) {
                 for (auto& ut : ptrUtterances) {
                     inputFrame.push_back(&ut.front());
                 }
-                std::map<std::string, ov::ProfilingInfo> callPerfMap;
+                std::vector<std::map<std::string, ov::ProfilingInfo>> callPerfMap;
+                callPerfMap.resize(numFrames);
+                std::vector<std::chrono::steady_clock::time_point> timesStart;
+                std::vector<std::chrono::steady_clock::time_point> timesWait;
+                timesStart.resize(numFrames);
+                timesWait.resize(numFrames);
+                size_t number = 0;
                 size_t frameIndex = 0;
                 uint32_t numFramesFile = numFrames;
                 numFrames += FLAGS_cw_l + FLAGS_cw_r;
@@ -483,6 +489,7 @@ int main(int argc, char* argv[]) {
                         if (inferRequest.frameIndex != -1) {
                             waitTimeT0 = Time::now();
                             inferRequest.inferRequest.wait();
+                            timesWait[number] = Time::now();
                             waitTime += std::chrono::duration_cast<ms>(Time::now() - waitTimeT0).count();
                             if (inferRequest.frameIndex >= 0) {
                                 if (!FLAGS_o.empty()) {
@@ -520,12 +527,13 @@ int main(int argc, char* argv[]) {
                                 if (FLAGS_pc) {
                                     collectPCTimeT0 = Time::now();
                                     // retrieve new counters
-                                    get_performance_counters(inferRequest.inferRequest, callPerfMap);
+                                    get_performance_counters(inferRequest.inferRequest, callPerfMap[number]);
                                     // summarize retrieved counters with all previous
-                                    sum_performance_counters(callPerfMap, utterancePerfMap, totalNumberOfRunsOnHw);
+                                    sum_performance_counters(callPerfMap[number], utterancePerfMap, totalNumberOfRunsOnHw);
                                     collectPCTime +=
                                         std::chrono::duration_cast<ms>(Time::now() - collectPCTimeT0).count();
                                 }
+                                number++;
                             }
                             // -----------------------------------------------------------------------------------------------------
                         }
@@ -573,6 +581,7 @@ int main(int argc, char* argv[]) {
                         int index = static_cast<int>(frameIndex) - (FLAGS_cw_l + FLAGS_cw_r);
                         /* Starting inference in asynchronous mode*/
                         inferRequestTimeT0 = Time::now();
+                        timesStart[number] = inferRequestTimeT0;
                         inferRequest.inferRequest.start_async();
                         inferRequestTime += std::chrono::duration_cast<ms>(Time::now() - inferRequestTimeT0).count();
                         inferRequest.frameIndex = index < 0 ? -2 : index;
@@ -640,6 +649,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "Average Infer time per frame:\t\t" << totalTime / static_cast<double>(numFrames) << " ms"
                           << std::endl;
 
+                std::cout << "Total time" << std::endl;
                 std::cout << "waitTime:\t" << waitTime << " ms" << std::endl;
                 std::cout << "collectPCTime:\t" << collectPCTime << " ms" << std::endl;
                 std::cout << "inferRequestTime:\t" << inferRequestTime << " ms" << std::endl;
@@ -647,6 +657,22 @@ int main(int argc, char* argv[]) {
                 std::cout << "fetchTime:\t" << fetchTime << " ms" << std::endl;
                 std::cout << "iterateTime:\t" << iterateTime << " ms" << std::endl;
 
+                std::cout << "Per frame times:" << std::endl;
+                for (size_t i = 0; i < numFrames; i++) {
+                    std::cout << "Frame#" << i << std::endl;
+                    std::cout << "Time from start to wait: ";
+                    std::cout << std::chrono::duration_cast<ms>(timesWait[i] - timesStart[i]).count() << std::endl;
+                    std::cout << "Perf counters: " << std::endl;
+                    if (FLAGS_pc) {
+                        // print performance results
+                        print_performance_counters(callPerfMap[i],
+                                                   frameIndex,
+                                                   std::cout,
+                                                   getFullDeviceName(core, FLAGS_d),
+                                                   totalNumberOfRunsOnHw,
+                                                   FLAGS_d);
+                    }
+                }
 
                 if (FLAGS_pc) {
                     // print performance results

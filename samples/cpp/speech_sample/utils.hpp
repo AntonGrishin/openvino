@@ -292,6 +292,8 @@ void print_performance_counters(std::map<std::string, ov::ProfilingInfo> const& 
                                 const uint64_t numberOfFramesOnHw,
                                 std::string FLAGS_d) {
 #if !defined(__arm__) && !defined(_M_ARM) && !defined(__aarch64__) && !defined(_M_ARM64)
+    stream.precision(9);
+
     std::ios::fmtflags fmt(std::cout.flags());
     stream << std::endl << "Performance counts:" << std::endl;
     stream << std::setw(10) << std::right << ""
@@ -320,8 +322,8 @@ void print_performance_counters(std::map<std::string, ov::ProfilingInfo> const& 
         } else {
             stream << std::setw(30) << std::left << counter_name;
         }
-        stream << std::setw(16) << std::right << current_units_us / 1000;
-        stream << std::setw(21) << std::right << call_units_us;
+        stream << std::setw(16) << std::right <<std::fixed << current_units_us / 1000;
+        stream << std::setw(21) << std::right << std::fixed <<  call_units_us;
         stream << std::endl;
     }
     stream << std::endl;
