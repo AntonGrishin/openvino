@@ -80,6 +80,8 @@
 #include "transformations/substitute_softsign.hpp"
 #include "transformations/convert_precision.hpp"
 #include "transformations/unfuse_reshape_and_transpose.hpp"
+#include "transformations/insert_copy_layer.hpp"
+#include "transformations/serialize.hpp"
 
 #include <ngraph/opsets/opset7.hpp>
 
@@ -692,6 +694,13 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         manager.register_pass<ReorderActivationAndPooling>();
         manager.register_pass<RemoveSingleInputConcat>();
         manager.register_pass<SubstituteSoftsign>();
+        manager.register_pass<ngraph::pass::VisualizeTree>("1before-copy.svg");
+        manager.register_pass<HandleMultiConnectedLayerToConcat>();
+        manager.register_pass<ngraph::pass::VisualizeTree>("2HandleMultiConnectedLayerToConcat.svg");
+        manager.register_pass<InsertCopyBeforeConcatLayer>();
+        manager.register_pass<ngraph::pass::VisualizeTree>("3InsertCopyBeforeConcatLayer.svg");
+        manager.register_pass<HandleLayerConnectedToMultipleConcatsOrMemories>();
+        manager.register_pass<ngraph::pass::VisualizeTree>("4after-copy.svg");
         manager.register_pass<ngraph::pass::ConvertOpSet3ToOpSet2>();
         manager.register_pass<ngraph::pass::ConvertOpSet2ToOpSet1>();
         manager.register_pass<ngraph::pass::ConvertOpSet1ToLegacy>();
@@ -790,8 +799,9 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         passes->registerPass<EltwiseSplitOverChannelsPass>();
         passes->registerPass<InsertSplitAligningFilterPass>();
 
-        passes->registerPass<InsertCopyLayerPass>();
-
+        if (!isNgraphPassesUsed) {
+            passes->registerPass<InsertCopyLayerPass>();
+        }
         passes->registerPass<FlattenTrivialConcatPass>();
         passes->registerPass<InsertConcatAligningFilterPass>();
         passes->registerPass<ReorderConcatInputsPass>();
