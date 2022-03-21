@@ -697,10 +697,12 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         manager.register_pass<ngraph::pass::VisualizeTree>("1before-copy.svg");
         manager.register_pass<HandleMultiConnectedLayerToConcat>();
         manager.register_pass<ngraph::pass::VisualizeTree>("2HandleMultiConnectedLayerToConcat.svg");
+        manager.register_pass<InsertCopyBeforeMemoryLayer>();
+        manager.register_pass<ngraph::pass::VisualizeTree>("3InsertCopyBeforeMemoryLayer.svg");
         manager.register_pass<InsertCopyBeforeConcatLayer>();
-        manager.register_pass<ngraph::pass::VisualizeTree>("3InsertCopyBeforeConcatLayer.svg");
+        manager.register_pass<ngraph::pass::VisualizeTree>("4InsertCopyBeforeConcatLayer.svg");
         manager.register_pass<HandleLayerConnectedToMultipleConcatsOrMemories>();
-        manager.register_pass<ngraph::pass::VisualizeTree>("4after-copy.svg");
+        manager.register_pass<ngraph::pass::VisualizeTree>("5after-copy.svg");
         manager.register_pass<ngraph::pass::ConvertOpSet3ToOpSet2>();
         manager.register_pass<ngraph::pass::ConvertOpSet2ToOpSet1>();
         manager.register_pass<ngraph::pass::ConvertOpSet1ToLegacy>();

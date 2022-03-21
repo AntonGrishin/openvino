@@ -20,6 +20,7 @@ namespace GNAPluginNS {
 
 NGRAPH_RTTI_DEFINITION(HandleMultiConnectedLayerToConcat, "HandleMultiConnectedLayerToConcat", 0);
 NGRAPH_RTTI_DEFINITION(InsertCopyBeforeConcatLayer, "InsertCopyBeforeConcatLayer", 0);
+NGRAPH_RTTI_DEFINITION(InsertCopyBeforeMemoryLayer, "InsertCopyBeforeMemoryLayer", 0);
 NGRAPH_RTTI_DEFINITION(HandleLayerConnectedToMultipleConcatsOrMemories, "HandleLayerConnectedToMultipleConcatsOrMemories", 0);
 
 namespace {
@@ -40,6 +41,17 @@ namespace {
         return std::dynamic_pointer_cast<ngraph::opset8::Reshape>(node) ||
                std::dynamic_pointer_cast<ngraph::opset8::Squeeze>(node) ||
                std::dynamic_pointer_cast<ngraph::opset8::Unsqueeze>(node);
+    }
+
+    std::shared_ptr<ngraph::opset8::StridedSlice> ConstructStridedSlice() {
+        auto data = std::make_shared<ngraph::pattern::op::Label>(ngraph::element::f32, ngraph::Shape{1, 1, 1, 1});
+        auto m_begin = std::make_shared<ngraph::pattern::op::Label>(ngraph::element::i64, ngraph::Shape{2});
+        auto m_end = std::make_shared<ngraph::pattern::op::Label>(ngraph::element::i64, ngraph::Shape{2});
+        auto m_stride = std::make_shared<ngraph::pattern::op::Label>(ngraph::element::i64, ngraph::Shape{2});
+        std::vector<int64_t> begin_mask = {0, 0, 0, 0};
+        std::vector<int64_t> end_mask = {0, 0, 0, 0};
+
+        return std::make_shared<ngraph::opset8::StridedSlice>(data, m_begin, m_end, m_stride, begin_mask, end_mask);
     }
 }// namespace
 
@@ -70,24 +82,52 @@ HandleMultiConnectedLayerToConcat::HandleMultiConnectedLayerToConcat() {
     this->register_matcher(m, callback);
 }
 
+InsertCopyBeforeMemoryLayer::InsertCopyBeforeMemoryLayer() {
+    MATCHER_SCOPE(InsertCopyBeforeMemoryLayer);
+
+    // auto slice_in = ConstructStridedSlice();
+    // auto crop_in = ngraph::pattern::wrap_type<ngraph::op::CropIE>();
+    auto split_in = ngraph::pattern::wrap_type<ngraph::opset8::Split>();
+    // auto vsplit_in = ngraph::pattern::wrap_type<ngraph::opset8::VariadicSplit>();
+    // auto concat_in = ngraph::pattern::wrap_type<ngraph::opset8::Concat>();
+    // auto input_ops = std::make_shared<ngraph::pattern::op::Or>(ngraph::OutputVector{slice_in, crop_in, split_in, vsplit_in, concat_in});
+
+    auto read_op = std::make_shared<ngraph::opset3::ReadValue>({split_in});
+    auto assign_op = std::make_shared<ngraph::opset3::Assign>({split_in});
+    auto memory_ops = std::make_shared<ngraph::pattern::op::Or>(ngraph::OutputVector{read_op, assign_op});
+
+    // crop/split/concat -> memory
+    ngraph::matcher_pass_callback callback = [=](ngraph::pattern::Matcher& m) {
+        auto& pattern_map = m.get_pattern_value_map();
+
+        auto memory_iter = pattern_map.find(assign_op);
+        if (memory_iter == pattern_map.end() &&
+           (memory_iter = pattern_map.find(read_op)) == pattern_map.end())
+            return false;
+
+        auto memory_node = memory_iter->second.get_node_shared_ptr();
+        auto memory_input = memory_node->input(0).get_source_output().get_node_shared_ptr();
+        InsertCopyLayerBetween(memory_input, memory_node, 0);
+
+        return true;
+    };
+    auto m = std::make_shared<ngraph::pattern::Matcher>(memory_ops, matcher_name);
+    this->register_matcher(m, callback);
+}
+
 InsertCopyBeforeConcatLayer::InsertCopyBeforeConcatLayer() {
     MATCHER_SCOPE(InsertCopyBeforeConcatLayer);
 
     auto concat_op = ngraph::pattern::wrap_type<ngraph::opset8::Concat>();
-    auto read_op = ngraph::pattern::wrap_type<ngraph::op::ReadValueBase>();
-    auto assign_op = ngraph::pattern::wrap_type<ngraph::op::AssignBase>();
 
-    auto match_ops = std::make_shared<ngraph::pattern::op::Or>(ngraph::OutputVector{concat_op, read_op, assign_op});
+    auto match_ops = std::make_shared<ngraph::pattern::op::Or>(ngraph::OutputVector{concat_op});
     ngraph::matcher_pass_callback callback = [=](ngraph::pattern::Matcher& m) {
         auto node = std::dynamic_pointer_cast<ngraph::Node>(m.get_match_root());
 
-        if (!std::dynamic_pointer_cast<ngraph::opset8::Concat>(node) &&
-            !std::dynamic_pointer_cast<ngraph::op::ReadValueBase>(node) &&
-            !std::dynamic_pointer_cast<ngraph::op::AssignBase>(node))
+        if (!std::dynamic_pointer_cast<ngraph::opset8::Concat>(node))
                 return false;
 
         // crop/split -> concat
-        // crop/split/concat -> memory
         for (size_t i = 0; i < node->get_input_size(); i++) {
             auto curr_input = node->input(i).get_source_output().get_node_shared_ptr();
 
@@ -96,11 +136,7 @@ InsertCopyBeforeConcatLayer::InsertCopyBeforeConcatLayer() {
                 std::dynamic_pointer_cast<ngraph::opset8::StridedSlice>(curr_input) ||
                 std::dynamic_pointer_cast<ngraph::op::CropIE>(curr_input);
 
-            bool is_memory_case = (std::dynamic_pointer_cast<ngraph::op::ReadValueBase>(node) ||
-                std::dynamic_pointer_cast<ngraph::op::AssignBase>(node)) &&
-                (is_concat_case || std::dynamic_pointer_cast<ngraph::opset8::Concat>(curr_input));
-
-            if (!is_concat_case && !is_memory_case) {
+            if (!is_concat_case) {
                 continue;
             }
 

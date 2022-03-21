@@ -16,6 +16,12 @@ public:
     HandleMultiConnectedLayerToConcat();
 };
 
+class InsertCopyBeforeMemoryLayer : public ngraph::pass::MatcherPass {
+public:
+    NGRAPH_RTTI_DECLARATION;
+    InsertCopyBeforeMemoryLayer();
+};
+
 class InsertCopyBeforeConcatLayer : public ngraph::pass::MatcherPass {
 public:
     NGRAPH_RTTI_DECLARATION;
